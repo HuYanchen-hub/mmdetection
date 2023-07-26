@@ -215,7 +215,7 @@ test_pipeline = [
 ]
 
 val_dataloader = dict(
-    batch_size=16,
+    batch_size=1,
     num_workers=4,
     dataset=dict(
         pipeline=test_pipeline
@@ -231,7 +231,10 @@ val_evaluator = [
         type='CocoMetric',
         ann_file=data_root + 'annotations/instances_val2017.json',
         metric=['bbox', 'segm'],
-        backend_args={{_base_.backend_args}})
+        backend_args={{_base_.backend_args}}),
+    dict(
+        type='SemSegMetric',
+        iou_metrics=['mIoU'])
 ]
 test_evaluator = val_evaluator
 

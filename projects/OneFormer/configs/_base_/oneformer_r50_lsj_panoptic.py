@@ -10,7 +10,7 @@ batch_augments = [
     dict(
         type='BatchFixedSizePad',
         size=image_size,
-        img_pad_value=128,
+        img_pad_value=0,
         pad_mask=True,
         mask_pad_value=0,
         pad_seg=True,
@@ -18,15 +18,15 @@ batch_augments = [
 ]
 data_preprocessor = dict(
     type='DetDataPreprocessor',
-    mean=[123.675, 116.28, 103.53],
-    std=[58.395, 57.12, 57.375],
+    mean=[123.675, 116.280, 103.530],
+    std=[58.395, 57.120, 57.375],
     bgr_to_rgb=True,
-    pad_size_divisor=32,
-    pad_mask=True,
-    mask_pad_value=0,
-    pad_seg=True,
-    seg_pad_value=255,
-    batch_augments=batch_augments)
+    pad_size_divisor=32)
+    # pad_mask=True,
+    # mask_pad_value=0,
+    # pad_seg=True,
+    # seg_pad_value=255,
+    # batch_augments=batch_augments)
 
 model = dict(
     type='OneFormer',

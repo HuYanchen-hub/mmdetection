@@ -3,9 +3,10 @@ from mmengine.config import Config
 from mmdet.registry import MODELS
 import torch
 
-
+from mmdet.utils import register_all_modules
+register_all_modules()
 def print_model():
-    cfg_path = './projects/OneFormer/configs/oneformer_swin-l-p4-w12-384-in21k_16xb1-lsj-100e_coco-panoptic.py'
+    cfg_path = './projects/OneFormer/configs/oneformer_swin-l-p4-w12-384-in21k_16xb1-lsj-100e_coco_panoptic.py'
     # cfg_path = 'configs/mask2former/mask2former_r50_8xb2-lsj-50e_coco-panoptic.py'
     model_cfg = Config.fromfile(cfg_path)
     detector = MODELS.build(model_cfg['model'])

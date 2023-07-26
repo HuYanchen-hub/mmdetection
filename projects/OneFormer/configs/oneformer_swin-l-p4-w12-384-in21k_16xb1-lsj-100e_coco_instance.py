@@ -18,24 +18,24 @@ test_pipeline = [
         backend_args=None),
     dict(
         type='ResizeShortestEdge', scale=800, max_size=1333, backend='pillow'),
-    dict(type='LoadAnnotations', with_bbox=True, with_mask=True),
+    dict(type='LoadAnnotations', with_bbox=False, with_mask=True),
     dict(
         type='PackDetInputs',
         meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape',
                    'scale_factor'))
 ]
 val_dataloader = dict(
-    batch_size=2,
-    num_workers=4,
+    batch_size=1,
+    num_workers=2,
     dataset=dict(
-        pipeline=test_pipeline
+        pipeline=test_pipeline,
     )   
 )
 test_dataloader=val_dataloader
 val_evaluator = [
     dict(
         type='CocoMetric',
-        ann_file=data_root + 'annotations/instances_val2017.json',
+        ann_file=data_root + 'annotations/panoptic2instances_val2017.json',
         metric='segm',
         backend_args=None)
 ]

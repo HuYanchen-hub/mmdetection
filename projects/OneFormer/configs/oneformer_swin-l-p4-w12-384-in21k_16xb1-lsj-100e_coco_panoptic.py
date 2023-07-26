@@ -6,7 +6,7 @@ _base_ = [
 model = dict(
     test_cfg=dict(
         panoptic_on=True,
-        semantic_on=False,
+        semantic_on=True,
         instance_on=True,
         ),
 )
@@ -18,8 +18,8 @@ test_pipeline = [
          imdecode_backend='pillow', 
          backend_args=backend_args),
     dict(
-        type='ResizeShortestEdge', scale=800, max_size=1333, backend='pillow'),
-    dict(type='LoadPanopticAnnotations', backend_args=backend_args),
+        type='ResizeShortestEdge', scale=800, max_size=1333, backend='pillow', interpolation='bilinear'),
+    dict(type='LoadPanopticAnnotations', imdecode_backend='pillow', backend_args=backend_args),
     dict(
         type='PackDetInputs',
         meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape',
@@ -27,8 +27,8 @@ test_pipeline = [
 ]
 
 val_dataloader = dict(
-    batch_size=2,
-    num_workers=4,
+    batch_size=1,
+    num_workers=2,
     dataset=dict(
         pipeline=test_pipeline
     )
@@ -46,6 +46,9 @@ val_evaluator = [
         type='CocoMetric',
         ann_file=data_root + 'annotations/instances_val2017.json',
         metric=['bbox', 'segm'],
-        backend_args=backend_args)
+        backend_args=backend_args),
+    dict(
+        type='SemSegMetric',
+        iou_metrics=['mIoU'])
 ]
 test_evaluator = val_evaluator

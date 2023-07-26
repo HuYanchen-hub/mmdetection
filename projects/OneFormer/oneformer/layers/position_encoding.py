@@ -39,7 +39,6 @@ class PositionEmbeddingSine(nn.Module):
 
         dim_t = torch.arange(
             self.num_pos_feats, dtype=torch.float32, device=x.device)
-        # TODO: fixed __floordiv__ 操作类似于'trunc'向0四舍五入，'floor'普通四舍五入
         dim_t = self.temperature**(2 *
                                    torch.div(dim_t, 2, rounding_mode='floor') /
                                    self.num_pos_feats)

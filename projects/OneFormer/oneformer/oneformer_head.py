@@ -554,17 +554,17 @@ class OneFormerHead(Mask2FormerHead):
             data_sample.metainfo for data_sample in batch_data_samples
         ]
         batch_size = len(batch_img_metas)
-
-        # TODO: 如何判断当前forward是train还是test，train从batch_img_metas读tasks， test直接使用self.task
-        # tasks = torch.cat([
-        #     self.task_tokenizer(x['task']).to(self.device).unsqueeze(0)
-        #     for x in batch_img_metas
-        # ],
-        #                   dim=0)  #(1, 77)
+        if self.training:
+            tasks = torch.cat([
+                self.task_tokenizer(x['task']).to(self.device).unsqueeze(0)
+                for x in batch_img_metas
+            ],dim=0)  #(1, 77)
+        else:
+            tasks = f"The task is {self.task}"
         
-
+        # batch_size = 1
         mask_features, multi_scale_memorys = self.pixel_decoder(x)
-        tasks = self.task_tokenizer(f"The task is {self.task}").to(mask_features.device).unsqueeze(0).repeat(batch_size, 1)  
+        tasks = self.task_tokenizer(tasks).to(mask_features.device).unsqueeze(0).repeat(batch_size, 1)  
         tasks = self.task_mlp(tasks.float())  #(1,256)
         
         
