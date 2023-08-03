@@ -24,6 +24,7 @@ from .layers.text_transformer import TextTransformer
 from .layers.tokenizer import SimpleTokenizer, Tokenize
 from .layers.transformer import Transformer
 from mmdet.models.utils import multi_apply
+from mmdet.structures.mask import BitmapMasks
 # from einops import rearrange
 
 
@@ -104,6 +105,11 @@ class OneFormerHead(Mask2FormerHead):
                      activate=True,
                      naive_dice=True,
                      loss_weight=1.0),
+                 loss_contrastive: ConfigType = dict(
+                     type='ContrastiveLoss',
+                     loss_weight=0.5,
+                     contrast_temperature=0.07,
+                 ),
                  train_cfg: OptConfigType = None,
                  test_cfg: OptConfigType = None,
                  init_cfg: OptMultiConfig = None,
@@ -196,6 +202,8 @@ class OneFormerHead(Mask2FormerHead):
         self.loss_cls = MODELS.build(loss_cls)
         self.loss_mask = MODELS.build(loss_mask)
         self.loss_dice = MODELS.build(loss_dice)
+        self.loss_contrastive = MODELS.build(loss_contrastive)
+
 
     def init_weights(self) -> None:
         for m in self.decoder_input_projs:
@@ -241,8 +249,13 @@ class OneFormerHead(Mask2FormerHead):
                     image.
                 - sampling_result (:obj:`SamplingResult`): Sampling results.
         """
+        gt_instances.labels = gt_instances.labels.long()
         gt_labels = gt_instances.labels
+        if isinstance(gt_instances.masks, BitmapMasks):
+            gt_instances.masks = gt_instances.masks.to_tensor(dtype=torch.bool, device=gt_labels.device)
+        gt_instances.masks = gt_instances.masks.long()
         gt_masks = gt_instances.masks
+
         # sample points
         num_queries = cls_score.shape[0]
         num_gts = gt_labels.shape[0]
@@ -257,7 +270,7 @@ class OneFormerHead(Mask2FormerHead):
         gt_points_masks = point_sample(
             gt_masks.unsqueeze(1).float(), point_coords.repeat(num_gts, 1,
                                                                1)).squeeze(1)
-
+       
         sampled_gt_instances = InstanceData(
             labels=gt_labels, masks=gt_points_masks)
         sampled_pred_instances = InstanceData(
@@ -289,7 +302,7 @@ class OneFormerHead(Mask2FormerHead):
 
         return (labels, label_weights, mask_targets, mask_weights, pos_inds,
                 neg_inds, sampling_result)
-
+    
     def _loss_by_feat_single(self, cls_scores: Tensor, mask_preds: Tensor,
                              batch_gt_instances: List[InstanceData],
                              batch_img_metas: List[dict]) -> Tuple[Tensor]:
@@ -310,6 +323,7 @@ class OneFormerHead(Mask2FormerHead):
             tuple[Tensor]: Loss components for outputs from a single \
                 decoder layer.
         """
+        
         num_imgs = cls_scores.size(0)
         cls_scores_list = [cls_scores[i] for i in range(num_imgs)]
         mask_preds_list = [mask_preds[i] for i in range(num_imgs)]
@@ -375,6 +389,8 @@ class OneFormerHead(Mask2FormerHead):
             mask_point_preds,
             mask_point_targets,
             avg_factor=num_total_masks * self.num_points)
+        
+        
 
         return loss_cls, loss_mask, loss_dice
 
@@ -422,6 +438,7 @@ class OneFormerHead(Mask2FormerHead):
         return cls_pred, mask_pred, attn_mask
 
     def loss_by_feat(self, all_cls_scores: Tensor, all_mask_preds: Tensor,
+                     text_x: Tensor, query: Tensor,
                      batch_gt_instances: List[InstanceData],
                      batch_img_metas: List[dict]) -> Dict[str, Tensor]:
         """Loss function.
@@ -449,11 +466,15 @@ class OneFormerHead(Mask2FormerHead):
             self._loss_by_feat_single, all_cls_scores, all_mask_preds,
             batch_gt_instances_list, img_metas_list)
 
+        loss_contrastive = self.loss_contrastive(text_x, query)
+        # print(loss_contrastive)
+
         loss_dict = dict()
         # loss from the last decoder layer
         loss_dict['loss_cls'] = losses_cls[-1]
         loss_dict['loss_mask'] = losses_mask[-1]
         loss_dict['loss_dice'] = losses_dice[-1]
+        loss_dict['loss_contrastive'] = loss_contrastive
         # loss from other decoder layers
         num_dec_layer = 0
         for loss_cls_i, loss_mask_i, loss_dice_i in zip(
@@ -464,27 +485,29 @@ class OneFormerHead(Mask2FormerHead):
             num_dec_layer += 1
         return loss_dict
     
-    # def _encode_text(self, text):
-    #     assert text.ndim in [2, 3], text.ndim
-    #     b = text.shape[0]
-    #     squeeze_dim = False
-    #     num_text = 1
-    #     if text.ndim == 3:
-    #         num_text = text.shape[1]
-    #         text = rearrange(text, 'b n l -> (b n) l', n=num_text)
-    #         squeeze_dim = True
+    def _encode_text(self, text):
+        assert text.ndim in [2, 3], text.ndim
+        b = text.shape[0]
+        squeeze_dim = False
+        num_text = 1
+        if text.ndim == 3:
+            num_text = text.shape[1]
+            text = text.reshape(-1, text.shape[2])
+            # text = rearrange(text, 'b n l -> (b n) l', n=num_text)
+            squeeze_dim = True
 
-    #     x = self.text_encoder(text)
+        x = self.text_encoder(text)
 
-    #     text_x = self.text_projector(x)
+        text_x = self.text_projector(x)
 
-    #     if squeeze_dim:
-    #         text_x = rearrange(text_x, '(b n) c -> b n c', n=num_text)
-    #         if self.prompt_ctx is not None:
-    #             text_ctx = self.prompt_ctx.weight.unsqueeze(0).repeat(text_x.shape[0], 1, 1)
-    #             text_x = torch.cat([text_x, text_ctx], dim=1)
+        if squeeze_dim:
+            # text_x = rearrange(text_x, '(b n) c -> b n c', n=num_text)
+            text_x = text_x.reshape(-1, num_text, text_x.shape[1])
+            if self.prompt_ctx is not None:
+                text_ctx = self.prompt_ctx.weight.unsqueeze(0).repeat(text_x.shape[0], 1, 1)
+                text_x = torch.cat([text_x, text_ctx], dim=1)
         
-    #     return {"texts": text_x}
+        return text_x
 
     def loss(
         self,
@@ -516,14 +539,12 @@ class OneFormerHead(Mask2FormerHead):
                 batch_gt_semantic_segs.append(None)
 
         # forward
-        all_cls_scores, all_mask_preds = self(x, batch_data_samples)
-
-        # preprocess ground truth
-        batch_gt_instances = self.preprocess_gt(batch_gt_instances,
-                                                batch_gt_semantic_segs)
+        all_cls_scores, all_mask_preds, text_x, query = self(x, batch_data_samples)
+        self.all_cls_scores = all_cls_scores
+        self.all_mask_preds = all_mask_preds
 
         # loss
-        losses = self.loss_by_feat(all_cls_scores, all_mask_preds,
+        losses = self.loss_by_feat(all_cls_scores, all_mask_preds, text_x, query,
                                    batch_gt_instances, batch_img_metas)
 
         return losses
@@ -554,21 +575,20 @@ class OneFormerHead(Mask2FormerHead):
             data_sample.metainfo for data_sample in batch_data_samples
         ]
         batch_size = len(batch_img_metas)
+        self.features = x
+        mask_features, multi_scale_memorys = self.pixel_decoder(x)
+
         if self.training:
             tasks = torch.cat([
-                self.task_tokenizer(x['task']).to(self.device).unsqueeze(0)
-                for x in batch_img_metas
+                self.task_tokenizer(img_metas['task']).to(x[0].device).unsqueeze(0)
+                for img_metas in batch_img_metas
             ],dim=0)  #(1, 77)
         else:
             tasks = f"The task is {self.task}"
+            tasks = self.task_tokenizer(tasks).to(mask_features.device).unsqueeze(0).repeat(batch_size, 1)  
         
-        # batch_size = 1
-        mask_features, multi_scale_memorys = self.pixel_decoder(x)
-        tasks = self.task_tokenizer(tasks).to(mask_features.device).unsqueeze(0).repeat(batch_size, 1)  
         tasks = self.task_mlp(tasks.float())  #(1,256)
         
-        
-
         decoder_inputs = []
         decoder_positional_encodings = []
         for i in range(self.num_transformer_feat_level):
@@ -646,5 +666,12 @@ class OneFormerHead(Mask2FormerHead):
 
             cls_pred_list.append(cls_pred)
             mask_pred_list.append(mask_pred)
+
+        if self.training:
+        # if True:
+            texts = torch.cat([self.text_tokenizer(img_metas["oneformer_texts"]).to(query_feat.device).unsqueeze(0) for img_metas in batch_img_metas], dim=0)
+            texts_x = self._encode_text(texts)
+
+            return cls_pred_list, mask_pred_list, texts_x, query_feat
 
         return cls_pred_list, mask_pred_list

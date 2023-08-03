@@ -101,6 +101,11 @@ def convert_prompt_ctx(model_key, model_weight, state_dict, converted_names):
     state_dict[new_key] = model_weight
     converted_names.add(model_key)
     print(f'Convert {model_key} to {new_key}')
+def convert_logit_scale(model_key, model_weight, state_dict, converted_names):
+    new_key = model_key.replace('criterion', 'panoptic_head.loss_contrastive')   
+    state_dict[new_key] = model_weight
+    converted_names.add(model_key)
+    print(f'Convert {model_key} to {new_key}')
 def convert_text_projector(model_key, model_weight, state_dict, converted_names):
     new_key = model_key.replace('text_projector', 'panoptic_head.text_projector')   
     state_dict[new_key] = model_weight
@@ -231,6 +236,8 @@ def convert(src, dst):
             convert_text_projector(key, weight, state_dict, converted_names)
         elif 'prompt_ctx' in key:
             convert_prompt_ctx(key, weight, state_dict, converted_names)
+        elif 'criterion.logit_scale' in key:
+            convert_logit_scale(key, weight, state_dict, converted_names)
     # check if all layers are converted
     for key in blobs:
         if key not in converted_names:
